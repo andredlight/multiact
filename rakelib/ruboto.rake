@@ -207,15 +207,13 @@ file BUNDLE_JAR => [GEM_FILE, GEM_LOCK_FILE] do
 
   FileUtils.mkdir_p BUNDLE_PATH
   sh "bundle install --gemfile #{GEM_FILE} --path=#{BUNDLE_PATH}"
-  
-  if gem_path = Dir["#{BUNDLE_PATH}/*ruby/1.8/gems"][0]
-    puts "Found gems for Ruby 1.8.  Using ruby 1.8."
-  elsif gem_path = Dir["#{BUNDLE_PATH}/*ruby/1.9.1/gems"][0]
-    puts "Found gems for Ruby 1.9.1.  Using ruby 1.9."
-  else
-    puts "FATAL: gem_path could not be found.  Exiting."
-    exit 1
-  end
+  gem_path = Dir["#{BUNDLE_PATH}/*ruby/1.8/gems"][0]
+
+  gem_paths = Dir["#{BUNDLE_PATH}/*ruby/*/gems"]
+  raise "Gem path not found" if gem_paths.empty?
+  raise "Found multiple gem paths: #{gem_paths}" if gem_paths.size > 1
+  gem_path = gem_paths[0]
+  puts "Found gems in #{gem_path}"
 
   if package != 'org.ruboto.core' && JRUBY_JARS.none? { |f| File.exists? f }
     Dir.chdir gem_path do
@@ -405,7 +403,10 @@ def install_apk
   when false
     puts "Package #{package} already installed, but of different size.  Replacing package."
     output = `adb install -r #{APK_FILE} 2>&1`
-    return if $? == 0 && output !~ failure_pattern && output =~ success_pattern
+    if $? == 0 && output !~ failure_pattern && output =~ success_pattern
+      clear_update
+      return
+    end
     case $1
     when 'INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES'
       puts "Found package signed with different certificate.  Uninstalling it and retrying install."
@@ -415,6 +416,7 @@ def install_apk
     end
     uninstall_apk
   end
+  puts "Installing package #{package}"
   output = `adb install #{APK_FILE} 2>&1`
   raise "Install failed (#{$?}) #{$1 ? "[#$1}]" : output}" if $? != 0 || output =~ failure_pattern || output !~ success_pattern
   clear_update

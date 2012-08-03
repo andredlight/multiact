@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='UTF-8'?>
+<?xml version='1.0' encoding='UTF-8'?> 
 <manifest xmlns:android='http://schemas.android.com/apk/res/android' package='org.rubototest.multiact' android:versionCode='1' android:versionName='1.0'>
     <application android:label='@string/app_name' android:icon='@drawable/ic_launcher' android:hardwareAccelerated='true' android:largeHeap='true'>
         <activity android:name='MultiactActivity' android:label='@string/app_name'>
