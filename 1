@@ -1,0 +1,70 @@
+ant debug
+Buildfile: /media/storage/home/jeremy/recent_projects/multiact/build.xml
+
+-set-mode-check:
+
+-set-debug-files:
+
+-check-env:
+ [checkenv] Android SDK Tools Revision 20
+ [checkenv] Installed at /home/jeremy/android/android-sdk-linux
+
+-setup:
+     [echo] Project Name: Multiact
+  [gettype] Project Type: Application
+     [echo] Switching between debug and non debug build: Deleting previous compilation output...
+   [delete] Deleting directory /media/storage/home/jeremy/recent_projects/multiact/bin/classes
+
+-set-debug-mode:
+
+-debug-obfuscation-check:
+
+-build-setup:
+     [echo] Resolving Build Target for Multiact...
+[gettarget] Project Target:   Android 4.1
+[gettarget] API level:        16
+     [echo] ----------
+     [echo] Creating output directories if needed...
+    [mkdir] Created dir: /media/storage/home/jeremy/recent_projects/multiact/bin/classes
+     [echo] ----------
+     [echo] Resolving Dependencies for Multiact...
+[dependency] Library dependencies:
+[dependency] No Libraries
+     [echo] ----------
+     [echo] Building Libraries with 'debug'...
+   [subant] No sub-builds to iterate on
+
+-pre-build:
+
+-code-gen:
+[mergemanifest] No changes in the AndroidManifest files.
+     [echo] Handling aidl files...
+     [aidl] No AIDL files to compile.
+     [echo] ----------
+     [echo] Handling RenderScript files...
+[renderscript] No RenderScript files to compile.
+     [echo] ----------
+     [echo] Handling Resources...
+     [aapt] No changed resources. R.java and Manifest.java untouched.
+     [echo] ----------
+     [echo] Handling BuildConfig class...
+[buildconfig] Generating BuildConfig class.
+
+-pre-compile:
+
+-compile:
+    [javac] Compiling 11 source files to /media/storage/home/jeremy/recent_projects/multiact/bin/classes
+    [javac] Note: Some input files use or override a deprecated API.
+    [javac] Note: Recompile with -Xlint:deprecation for details.
+
+-post-compile:
+
+-obfuscate:
+
+-dex:
+      [dex] Converting compiled files and external libraries into /media/storage/home/jeremy/recent_projects/multiact/bin/classes.dex...
+rake aborted!
+Command failed with status (130): [ant debug...]
+
+Tasks: TOP => install => /media/storage/home/jeremy/recent_projects/multiact/bin/Multiact-debug.apk
+(See full trace by running task with --trace)
