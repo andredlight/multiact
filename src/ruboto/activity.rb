@@ -21,7 +21,7 @@ module Ruboto
 
       instance_eval &$context_init_block if $context_init_block
       $context_init_block = nil
-      setup_ruboto_callbacks 
+      setup_ruboto_callbacks
 
       @initialized = true
       self

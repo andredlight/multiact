@@ -13,7 +13,7 @@ class MultiactActivity
         linear_layout(:orientation => :vertical) do
           @text_view = text_view :text => 'What hath Matz wrought?', :id => 42, :width => :fill_parent,
                                  :gravity => android.view.Gravity::CENTER, :text_size => 48.0
-          button :text => "Next activity", :id => 43, :width => :fill_parent, :on_click_listener => proc { next_activity }
+          button :text => "Next activity", :id => 43, :width => :fill_parent, :on_click_listener => proc { next_activity ; nil }
         end
     )
   end
