@@ -207,9 +207,8 @@ file BUNDLE_JAR => [GEM_FILE, GEM_LOCK_FILE] do
 
   FileUtils.mkdir_p BUNDLE_PATH
   sh "bundle install --gemfile #{GEM_FILE} --path=#{BUNDLE_PATH}"
-  gem_path = Dir["#{BUNDLE_PATH}/*ruby/1.8/gems"][0]
 
-  gem_paths = Dir["#{BUNDLE_PATH}/*ruby/*/gems"]
+  gem_paths = Dir["#{BUNDLE_PATH}/{{,j}ruby,rbx}/{1.8,1.9{,.1},shared}/gems"]
   raise "Gem path not found" if gem_paths.empty?
   raise "Found multiple gem paths: #{gem_paths}" if gem_paths.size > 1
   gem_path = gem_paths[0]
@@ -356,6 +355,17 @@ def package_installed? test = false
         return false
       end
     end
+
+    sdcard_path = "/mnt/asec/#{package_name}#{i}/pkg.apk"
+    o = `adb shell ls -l #{sdcard_path}`.chomp
+    if o =~ /^-r-xr-xr-x system\s+root\s+(\d+) \d{4}-\d{2}-\d{2} \d{2}:\d{2} #{File.basename(sdcard_path)}$/
+      apk_file = test ? TEST_APK_FILE : APK_FILE
+      if !File.exists?(apk_file) || $1.to_i == File.size(apk_file)
+        return true
+      else
+        return false
+      end
+    end
   end
   return nil
 end
@@ -418,6 +428,7 @@ def install_apk
   end
   puts "Installing package #{package}"
   output = `adb install #{APK_FILE} 2>&1`
+  puts output
   raise "Install failed (#{$?}) #{$1 ? "[#$1}]" : output}" if $? != 0 || output =~ failure_pattern || output !~ success_pattern
   clear_update
 end

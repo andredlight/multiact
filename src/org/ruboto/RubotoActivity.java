@@ -8,13 +8,6 @@ import android.app.ProgressDialog;
 import android.os.Bundle;
 
 public class RubotoActivity extends android.app.Activity {
-    private String rubyClassName;
-    private String scriptName;
-    private Object rubyInstance;
-    private String remoteVariable = null;
-    private Object[] args;
-    private Bundle configBundle = null;
-
   public static final int CB_ACTIVITY_RESULT = 0;
   public static final int CB_CHILD_TITLE_CHANGED = 1;
   public static final int CB_CONFIGURATION_CHANGED = 2;
@@ -71,7 +64,13 @@ public class RubotoActivity extends android.app.Activity {
   public static final int CB_TRIM_MEMORY = 53;
   public static final int CB_APPLY_THEME_RESOURCE = 54;
 
+    private String rubyClassName;
+    private String scriptName;
+    private Object rubyInstance;
     private Object[] callbackProcs = new Object[56];
+    private String remoteVariable = null;
+    private Object[] args;
+    private Bundle configBundle = null;
 
     public void setCallbackProc(int id, Object obj) {
         callbackProcs[id] = obj;
@@ -164,11 +163,11 @@ public class RubotoActivity extends android.app.Activity {
                         if (!rubyClassName.equals(getClass().getSimpleName())) {
                             System.out.println("Script defines methods on meta class");
                             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-                            if (true || isJRubyPreOneSeven() || isRubyOneEight()) {
+                            if (JRubyAdapter.isJRubyPreOneSeven() || JRubyAdapter.isRubyOneEight()) {
                                 JRubyAdapter.put("$java_instance", this);
                                 JRubyAdapter.put(rubyClassName, JRubyAdapter.runScriptlet("class << $java_instance; self; end"));
-                            } else if (isJRubyOneSeven() && isRubyOneNine()) {
-                                // FIXME(uwe): Why does not singleton_class method use work?
+                            } else if (JRubyAdapter.isJRubyOneSeven() && JRubyAdapter.isRubyOneNine()) {
+                                JRubyAdapter.runScriptlet("Java::" + getClass().getName() + ".__persistent__ = true");
                                 JRubyAdapter.put(rubyClassName, JRubyAdapter.runRubyMethod(this, "singleton_class"));
                             } else {
                                 throw new RuntimeException("Unknown JRuby/Ruby version: " + JRubyAdapter.get("JRUBY_VERSION") + "/" + JRubyAdapter.get("RUBY_VERSION"));
@@ -181,10 +180,13 @@ public class RubotoActivity extends android.app.Activity {
                             System.out.println("Script contains class definition");
                             if (rubyClassName.equals(getClass().getSimpleName())) {
                                 System.out.println("Script has separate Java class");
+                                // FIXME(uwe): Simplify when we stop support for JRuby < 1.7.0
+                                if (!JRubyAdapter.isJRubyPreOneSeven()) {
+                                    JRubyAdapter.runScriptlet("Java::" + getClass().getName() + ".__persistent__ = true");
+                                }
                                 JRubyAdapter.put(rubyClassName, JRubyAdapter.runScriptlet("Java::" + getClass().getName()));
                             }
-                            // FIXME(uwe):  Why does this fail when running the navigation by class name test? (uses singleton class)
-                            // System.out.println("Set class: " + JRubyAdapter.get(rubyClassName));
+                            System.out.println("Set class: " + JRubyAdapter.get(rubyClassName));
                         }
                         JRubyAdapter.setScriptFilename(scriptName);
                         JRubyAdapter.runScriptlet(script);
@@ -203,10 +205,10 @@ public class RubotoActivity extends android.app.Activity {
                 if (rubyClass != null) {
                     System.out.println("Call on_create on: " + rubyInstance + ", " + JRubyAdapter.get("JRUBY_VERSION"));
                     // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-                    if (isJRubyPreOneSeven()) {
+                    if (JRubyAdapter.isJRubyPreOneSeven()) {
                         JRubyAdapter.put("$ruby_instance", rubyInstance);
                         JRubyAdapter.runScriptlet("$ruby_instance.on_create($bundle)");
-                    } else if (isJRubyOneSeven()) {
+                    } else if (JRubyAdapter.isJRubyOneSeven()) {
                         JRubyAdapter.runRubyMethod(rubyInstance, "on_create", args[0]);
                     } else {
                         throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -214,10 +216,10 @@ public class RubotoActivity extends android.app.Activity {
                 }
             } else if (configBundle != null) {
                 // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-                if (isJRubyPreOneSeven()) {
+                if (JRubyAdapter.isJRubyPreOneSeven()) {
             	    JRubyAdapter.runScriptlet("$activity.initialize_ruboto");
             	    JRubyAdapter.runScriptlet("$activity.on_create($bundle)");
-                } else if (isJRubyOneSeven()) {
+                } else if (JRubyAdapter.isJRubyOneSeven()) {
             	    JRubyAdapter.runRubyMethod(this, "initialize_ruboto");
                     JRubyAdapter.runRubyMethod(this, "on_create", args[0]);
                 } else {
@@ -232,22 +234,6 @@ public class RubotoActivity extends android.app.Activity {
 
     public boolean rubotoAttachable() {
       return true;
-    }
-
-    private boolean isRubyOneEight() {
-        return ((String)JRubyAdapter.get("RUBY_VERSION")).startsWith("1.8.");
-    }
-
-    private boolean isRubyOneNine() {
-        return ((String)JRubyAdapter.get("RUBY_VERSION")).startsWith("1.9.");
-    }
-
-    private boolean isJRubyPreOneSeven() {
-        return ((String)JRubyAdapter.get("JRUBY_VERSION")).equals("1.7.0.dev") || ((String)JRubyAdapter.get("JRUBY_VERSION")).equals("1.6.7");
-    }
-
-    private boolean isJRubyOneSeven() {
-        return ((String)JRubyAdapter.get("JRUBY_VERSION")).startsWith("1.7.");
     }
 
   /****************************************************************************************
@@ -265,14 +251,14 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_activity_result}")) {
           super.onActivityResult(requestCode, resultCode, data);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_requestCode", requestCode);
             JRubyAdapter.put("$arg_resultCode", resultCode);
             JRubyAdapter.put("$arg_data", data);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_activity_result($arg_requestCode, $arg_resultCode, $arg_data)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_activity_result", new Object[]{requestCode, resultCode, data});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -282,14 +268,14 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onActivityResult}")) {
             super.onActivityResult(requestCode, resultCode, data);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_requestCode", requestCode);
               JRubyAdapter.put("$arg_resultCode", resultCode);
               JRubyAdapter.put("$arg_data", data);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onActivityResult($arg_requestCode, $arg_resultCode, $arg_data)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onActivityResult", new Object[]{requestCode, resultCode, data});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -316,13 +302,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_child_title_changed}")) {
           super.onChildTitleChanged(childActivity, title);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_childActivity", childActivity);
             JRubyAdapter.put("$arg_title", title);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_child_title_changed($arg_childActivity, $arg_title)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_child_title_changed", new Object[]{childActivity, title});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -332,13 +318,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onChildTitleChanged}")) {
             super.onChildTitleChanged(childActivity, title);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_childActivity", childActivity);
               JRubyAdapter.put("$arg_title", title);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onChildTitleChanged($arg_childActivity, $arg_title)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onChildTitleChanged", new Object[]{childActivity, title});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -365,12 +351,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_configuration_changed}")) {
           super.onConfigurationChanged(newConfig);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_newConfig", newConfig);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_configuration_changed($arg_newConfig)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_configuration_changed", newConfig);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -380,12 +366,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onConfigurationChanged}")) {
             super.onConfigurationChanged(newConfig);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_newConfig", newConfig);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onConfigurationChanged($arg_newConfig)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onConfigurationChanged", newConfig);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -412,11 +398,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_content_changed}")) {
           super.onContentChanged();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_content_changed()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_content_changed");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -426,11 +412,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onContentChanged}")) {
             super.onContentChanged();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onContentChanged()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onContentChanged");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -457,12 +443,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_context_item_selected}")) {
           super.onContextItemSelected(item);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_item", item);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_context_item_selected($arg_item)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_context_item_selected", item);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -472,12 +458,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onContextItemSelected}")) {
             super.onContextItemSelected(item);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_item", item);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onContextItemSelected($arg_item)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onContextItemSelected", item);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -504,12 +490,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_context_menu_closed}")) {
           super.onContextMenuClosed(menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_context_menu_closed($arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_context_menu_closed", menu);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -519,12 +505,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onContextMenuClosed}")) {
             super.onContextMenuClosed(menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onContextMenuClosed($arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onContextMenuClosed", menu);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -551,14 +537,14 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_context_menu}")) {
           super.onCreateContextMenu(menu, v, menuInfo);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$arg_v", v);
             JRubyAdapter.put("$arg_menuInfo", menuInfo);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_create_context_menu($arg_menu, $arg_v, $arg_menuInfo)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_create_context_menu", new Object[]{menu, v, menuInfo});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -568,14 +554,14 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreateContextMenu}")) {
             super.onCreateContextMenu(menu, v, menuInfo);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$arg_v", v);
               JRubyAdapter.put("$arg_menuInfo", menuInfo);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onCreateContextMenu($arg_menu, $arg_v, $arg_menuInfo)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onCreateContextMenu", new Object[]{menu, v, menuInfo});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -602,11 +588,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_description}")) {
           super.onCreateDescription();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (java.lang.CharSequence) JRubyAdapter.runScriptlet("$ruby_instance.on_create_description()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (java.lang.CharSequence) JRubyAdapter.runRubyMethod(java.lang.CharSequence.class, rubyInstance, "on_create_description");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -616,11 +602,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreateDescription}")) {
             super.onCreateDescription();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (java.lang.CharSequence) JRubyAdapter.runScriptlet("$ruby_instance.onCreateDescription()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (java.lang.CharSequence) JRubyAdapter.runRubyMethod(java.lang.CharSequence.class, rubyInstance, "onCreateDescription");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -647,12 +633,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_options_menu}")) {
           super.onCreateOptionsMenu(menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_create_options_menu($arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_create_options_menu", menu);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -662,12 +648,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreateOptionsMenu}")) {
             super.onCreateOptionsMenu(menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onCreateOptionsMenu($arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onCreateOptionsMenu", menu);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -694,13 +680,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_panel_menu}")) {
           super.onCreatePanelMenu(featureId, menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_featureId", featureId);
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_create_panel_menu($arg_featureId, $arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_create_panel_menu", new Object[]{featureId, menu});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -710,13 +696,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreatePanelMenu}")) {
             super.onCreatePanelMenu(featureId, menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_featureId", featureId);
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onCreatePanelMenu($arg_featureId, $arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onCreatePanelMenu", new Object[]{featureId, menu});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -743,12 +729,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_panel_view}")) {
           super.onCreatePanelView(featureId);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_featureId", featureId);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (android.view.View) JRubyAdapter.runScriptlet("$ruby_instance.on_create_panel_view($arg_featureId)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (android.view.View) JRubyAdapter.runRubyMethod(android.view.View.class, rubyInstance, "on_create_panel_view", featureId);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -758,12 +744,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreatePanelView}")) {
             super.onCreatePanelView(featureId);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_featureId", featureId);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (android.view.View) JRubyAdapter.runScriptlet("$ruby_instance.onCreatePanelView($arg_featureId)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (android.view.View) JRubyAdapter.runRubyMethod(android.view.View.class, rubyInstance, "onCreatePanelView", featureId);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -790,13 +776,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_thumbnail}")) {
           super.onCreateThumbnail(outBitmap, canvas);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_outBitmap", outBitmap);
             JRubyAdapter.put("$arg_canvas", canvas);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_create_thumbnail($arg_outBitmap, $arg_canvas)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_create_thumbnail", new Object[]{outBitmap, canvas});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -806,13 +792,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreateThumbnail}")) {
             super.onCreateThumbnail(outBitmap, canvas);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_outBitmap", outBitmap);
               JRubyAdapter.put("$arg_canvas", canvas);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onCreateThumbnail($arg_outBitmap, $arg_canvas)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onCreateThumbnail", new Object[]{outBitmap, canvas});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -839,14 +825,14 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_view}")) {
           super.onCreateView(name, context, attrs);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_name", name);
             JRubyAdapter.put("$arg_context", context);
             JRubyAdapter.put("$arg_attrs", attrs);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (android.view.View) JRubyAdapter.runScriptlet("$ruby_instance.on_create_view($arg_name, $arg_context, $arg_attrs)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (android.view.View) JRubyAdapter.runRubyMethod(android.view.View.class, rubyInstance, "on_create_view", new Object[]{name, context, attrs});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -856,14 +842,14 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreateView}")) {
             super.onCreateView(name, context, attrs);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_name", name);
               JRubyAdapter.put("$arg_context", context);
               JRubyAdapter.put("$arg_attrs", attrs);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (android.view.View) JRubyAdapter.runScriptlet("$ruby_instance.onCreateView($arg_name, $arg_context, $arg_attrs)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (android.view.View) JRubyAdapter.runRubyMethod(android.view.View.class, rubyInstance, "onCreateView", new Object[]{name, context, attrs});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -890,11 +876,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_destroy}")) {
           super.onDestroy();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_destroy()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_destroy");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -904,11 +890,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onDestroy}")) {
             super.onDestroy();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onDestroy()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onDestroy");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -935,13 +921,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_key_down}")) {
           super.onKeyDown(keyCode, event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_keyCode", keyCode);
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_key_down($arg_keyCode, $arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_key_down", new Object[]{keyCode, event});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -951,13 +937,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onKeyDown}")) {
             super.onKeyDown(keyCode, event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_keyCode", keyCode);
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onKeyDown($arg_keyCode, $arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onKeyDown", new Object[]{keyCode, event});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -984,14 +970,14 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_key_multiple}")) {
           super.onKeyMultiple(keyCode, repeatCount, event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_keyCode", keyCode);
             JRubyAdapter.put("$arg_repeatCount", repeatCount);
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_key_multiple($arg_keyCode, $arg_repeatCount, $arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_key_multiple", new Object[]{keyCode, repeatCount, event});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1001,14 +987,14 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onKeyMultiple}")) {
             super.onKeyMultiple(keyCode, repeatCount, event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_keyCode", keyCode);
               JRubyAdapter.put("$arg_repeatCount", repeatCount);
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onKeyMultiple($arg_keyCode, $arg_repeatCount, $arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onKeyMultiple", new Object[]{keyCode, repeatCount, event});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1035,13 +1021,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_key_up}")) {
           super.onKeyUp(keyCode, event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_keyCode", keyCode);
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_key_up($arg_keyCode, $arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_key_up", new Object[]{keyCode, event});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1051,13 +1037,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onKeyUp}")) {
             super.onKeyUp(keyCode, event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_keyCode", keyCode);
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onKeyUp($arg_keyCode, $arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onKeyUp", new Object[]{keyCode, event});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1084,11 +1070,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_low_memory}")) {
           super.onLowMemory();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_low_memory()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_low_memory");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1098,11 +1084,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onLowMemory}")) {
             super.onLowMemory();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onLowMemory()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onLowMemory");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1129,13 +1115,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_menu_item_selected}")) {
           super.onMenuItemSelected(featureId, item);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_featureId", featureId);
             JRubyAdapter.put("$arg_item", item);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_menu_item_selected($arg_featureId, $arg_item)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_menu_item_selected", new Object[]{featureId, item});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1145,13 +1131,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onMenuItemSelected}")) {
             super.onMenuItemSelected(featureId, item);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_featureId", featureId);
               JRubyAdapter.put("$arg_item", item);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onMenuItemSelected($arg_featureId, $arg_item)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onMenuItemSelected", new Object[]{featureId, item});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1178,13 +1164,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_menu_opened}")) {
           super.onMenuOpened(featureId, menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_featureId", featureId);
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_menu_opened($arg_featureId, $arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_menu_opened", new Object[]{featureId, menu});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1194,13 +1180,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onMenuOpened}")) {
             super.onMenuOpened(featureId, menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_featureId", featureId);
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onMenuOpened($arg_featureId, $arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onMenuOpened", new Object[]{featureId, menu});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1227,12 +1213,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_new_intent}")) {
           super.onNewIntent(intent);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_intent", intent);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_new_intent($arg_intent)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_new_intent", intent);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1242,12 +1228,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onNewIntent}")) {
             super.onNewIntent(intent);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_intent", intent);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onNewIntent($arg_intent)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onNewIntent", intent);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1274,12 +1260,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_options_item_selected}")) {
           super.onOptionsItemSelected(item);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_item", item);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_options_item_selected($arg_item)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_options_item_selected", item);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1289,12 +1275,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onOptionsItemSelected}")) {
             super.onOptionsItemSelected(item);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_item", item);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onOptionsItemSelected($arg_item)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onOptionsItemSelected", item);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1321,12 +1307,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_options_menu_closed}")) {
           super.onOptionsMenuClosed(menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_options_menu_closed($arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_options_menu_closed", menu);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1336,12 +1322,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onOptionsMenuClosed}")) {
             super.onOptionsMenuClosed(menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onOptionsMenuClosed($arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onOptionsMenuClosed", menu);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1368,13 +1354,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_panel_closed}")) {
           super.onPanelClosed(featureId, menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_featureId", featureId);
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_panel_closed($arg_featureId, $arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_panel_closed", new Object[]{featureId, menu});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1384,13 +1370,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onPanelClosed}")) {
             super.onPanelClosed(featureId, menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_featureId", featureId);
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onPanelClosed($arg_featureId, $arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onPanelClosed", new Object[]{featureId, menu});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1417,11 +1403,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_pause}")) {
           super.onPause();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_pause()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_pause");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1431,11 +1417,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onPause}")) {
             super.onPause();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onPause()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onPause");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1462,12 +1448,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_post_create}")) {
           super.onPostCreate(savedInstanceState);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_savedInstanceState", savedInstanceState);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_post_create($arg_savedInstanceState)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_post_create", savedInstanceState);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1477,12 +1463,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onPostCreate}")) {
             super.onPostCreate(savedInstanceState);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_savedInstanceState", savedInstanceState);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onPostCreate($arg_savedInstanceState)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onPostCreate", savedInstanceState);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1509,11 +1495,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_post_resume}")) {
           super.onPostResume();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_post_resume()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_post_resume");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1523,11 +1509,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onPostResume}")) {
             super.onPostResume();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onPostResume()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onPostResume");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1554,12 +1540,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_prepare_options_menu}")) {
           super.onPrepareOptionsMenu(menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_prepare_options_menu($arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_prepare_options_menu", menu);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1569,12 +1555,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onPrepareOptionsMenu}")) {
             super.onPrepareOptionsMenu(menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onPrepareOptionsMenu($arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onPrepareOptionsMenu", menu);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1601,14 +1587,14 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_prepare_panel}")) {
           super.onPreparePanel(featureId, view, menu);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_featureId", featureId);
             JRubyAdapter.put("$arg_view", view);
             JRubyAdapter.put("$arg_menu", menu);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_prepare_panel($arg_featureId, $arg_view, $arg_menu)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_prepare_panel", new Object[]{featureId, view, menu});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1618,14 +1604,14 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onPreparePanel}")) {
             super.onPreparePanel(featureId, view, menu);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_featureId", featureId);
               JRubyAdapter.put("$arg_view", view);
               JRubyAdapter.put("$arg_menu", menu);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onPreparePanel($arg_featureId, $arg_view, $arg_menu)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onPreparePanel", new Object[]{featureId, view, menu});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1652,11 +1638,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_restart}")) {
           super.onRestart();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_restart()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_restart");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1666,11 +1652,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onRestart}")) {
             super.onRestart();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onRestart()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onRestart");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1697,12 +1683,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_restore_instance_state}")) {
           super.onRestoreInstanceState(savedInstanceState);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_savedInstanceState", savedInstanceState);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_restore_instance_state($arg_savedInstanceState)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_restore_instance_state", savedInstanceState);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1712,12 +1698,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onRestoreInstanceState}")) {
             super.onRestoreInstanceState(savedInstanceState);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_savedInstanceState", savedInstanceState);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onRestoreInstanceState($arg_savedInstanceState)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onRestoreInstanceState", savedInstanceState);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1744,11 +1730,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_resume}")) {
           super.onResume();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_resume()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_resume");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1758,11 +1744,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onResume}")) {
             super.onResume();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onResume()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onResume");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1789,12 +1775,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_save_instance_state}")) {
           super.onSaveInstanceState(outState);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_outState", outState);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_save_instance_state($arg_outState)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_save_instance_state", outState);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1804,12 +1790,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onSaveInstanceState}")) {
             super.onSaveInstanceState(outState);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_outState", outState);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onSaveInstanceState($arg_outState)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onSaveInstanceState", outState);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1836,11 +1822,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_search_requested}")) {
           super.onSearchRequested();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_search_requested()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_search_requested");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1850,11 +1836,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onSearchRequested}")) {
             super.onSearchRequested();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onSearchRequested()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onSearchRequested");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1881,11 +1867,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_start}")) {
           super.onStart();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_start()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_start");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1895,11 +1881,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onStart}")) {
             super.onStart();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onStart()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onStart");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1926,11 +1912,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_stop}")) {
           super.onStop();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_stop()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_stop");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1940,11 +1926,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onStop}")) {
             super.onStop();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onStop()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onStop");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1971,13 +1957,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_title_changed}")) {
           super.onTitleChanged(title, color);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_title", title);
             JRubyAdapter.put("$arg_color", color);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_title_changed($arg_title, $arg_color)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_title_changed", new Object[]{title, color});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -1987,13 +1973,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onTitleChanged}")) {
             super.onTitleChanged(title, color);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_title", title);
               JRubyAdapter.put("$arg_color", color);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onTitleChanged($arg_title, $arg_color)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onTitleChanged", new Object[]{title, color});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2020,12 +2006,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_touch_event}")) {
           super.onTouchEvent(event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_touch_event($arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_touch_event", event);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2035,12 +2021,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onTouchEvent}")) {
             super.onTouchEvent(event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onTouchEvent($arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onTouchEvent", event);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2067,12 +2053,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_trackball_event}")) {
           super.onTrackballEvent(event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_trackball_event($arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_trackball_event", event);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2082,12 +2068,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onTrackballEvent}")) {
             super.onTrackballEvent(event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onTrackballEvent($arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onTrackballEvent", event);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2114,12 +2100,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_window_attributes_changed}")) {
           super.onWindowAttributesChanged(params);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_params", params);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_window_attributes_changed($arg_params)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_window_attributes_changed", params);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2129,12 +2115,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onWindowAttributesChanged}")) {
             super.onWindowAttributesChanged(params);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_params", params);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onWindowAttributesChanged($arg_params)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onWindowAttributesChanged", params);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2161,12 +2147,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_window_focus_changed}")) {
           super.onWindowFocusChanged(hasFocus);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_hasFocus", hasFocus);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_window_focus_changed($arg_hasFocus)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_window_focus_changed", hasFocus);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2176,12 +2162,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onWindowFocusChanged}")) {
             super.onWindowFocusChanged(hasFocus);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_hasFocus", hasFocus);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onWindowFocusChanged($arg_hasFocus)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onWindowFocusChanged", hasFocus);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2208,11 +2194,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_user_interaction}")) {
           super.onUserInteraction();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_user_interaction()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_user_interaction");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2222,11 +2208,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onUserInteraction}")) {
             super.onUserInteraction();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onUserInteraction()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onUserInteraction");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2253,11 +2239,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_user_leave_hint}")) {
           super.onUserLeaveHint();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_user_leave_hint()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_user_leave_hint");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2267,11 +2253,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onUserLeaveHint}")) {
             super.onUserLeaveHint();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onUserLeaveHint()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onUserLeaveHint");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2298,11 +2284,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_attached_to_window}")) {
           super.onAttachedToWindow();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_attached_to_window()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_attached_to_window");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2312,11 +2298,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onAttachedToWindow}")) {
             super.onAttachedToWindow();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onAttachedToWindow()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onAttachedToWindow");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2343,11 +2329,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_back_pressed}")) {
           super.onBackPressed();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_back_pressed()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_back_pressed");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2357,11 +2343,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onBackPressed}")) {
             super.onBackPressed();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onBackPressed()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onBackPressed");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2388,11 +2374,11 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_detached_from_window}")) {
           super.onDetachedFromWindow();
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_detached_from_window()");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_detached_from_window");
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2402,11 +2388,11 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onDetachedFromWindow}")) {
             super.onDetachedFromWindow();
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onDetachedFromWindow()");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onDetachedFromWindow");
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2433,13 +2419,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_key_long_press}")) {
           super.onKeyLongPress(keyCode, event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_keyCode", keyCode);
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_key_long_press($arg_keyCode, $arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_key_long_press", new Object[]{keyCode, event});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2449,13 +2435,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onKeyLongPress}")) {
             super.onKeyLongPress(keyCode, event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_keyCode", keyCode);
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onKeyLongPress($arg_keyCode, $arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onKeyLongPress", new Object[]{keyCode, event});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2482,12 +2468,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_action_mode_finished}")) {
           super.onActionModeFinished(mode);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_mode", mode);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_action_mode_finished($arg_mode)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_action_mode_finished", mode);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2497,12 +2483,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onActionModeFinished}")) {
             super.onActionModeFinished(mode);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_mode", mode);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onActionModeFinished($arg_mode)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onActionModeFinished", mode);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2529,12 +2515,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_action_mode_started}")) {
           super.onActionModeStarted(mode);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_mode", mode);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_action_mode_started($arg_mode)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_action_mode_started", mode);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2544,12 +2530,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onActionModeStarted}")) {
             super.onActionModeStarted(mode);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_mode", mode);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onActionModeStarted($arg_mode)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onActionModeStarted", mode);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2576,12 +2562,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_attach_fragment}")) {
           super.onAttachFragment(fragment);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_fragment", fragment);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_attach_fragment($arg_fragment)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_attach_fragment", fragment);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2591,12 +2577,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onAttachFragment}")) {
             super.onAttachFragment(fragment);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_fragment", fragment);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onAttachFragment($arg_fragment)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onAttachFragment", fragment);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2623,7 +2609,7 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_create_view}")) {
           super.onCreateView(parent, name, context, attrs);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_parent", parent);
             JRubyAdapter.put("$arg_name", name);
             JRubyAdapter.put("$arg_context", context);
@@ -2631,7 +2617,7 @@ public class RubotoActivity extends android.app.Activity {
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (android.view.View) JRubyAdapter.runScriptlet("$ruby_instance.on_create_view($arg_parent, $arg_name, $arg_context, $arg_attrs)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (android.view.View) JRubyAdapter.runRubyMethod(android.view.View.class, rubyInstance, "on_create_view", new Object[]{parent, name, context, attrs});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2641,7 +2627,7 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onCreateView}")) {
             super.onCreateView(parent, name, context, attrs);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_parent", parent);
               JRubyAdapter.put("$arg_name", name);
               JRubyAdapter.put("$arg_context", context);
@@ -2649,7 +2635,7 @@ public class RubotoActivity extends android.app.Activity {
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (android.view.View) JRubyAdapter.runScriptlet("$ruby_instance.onCreateView($arg_parent, $arg_name, $arg_context, $arg_attrs)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (android.view.View) JRubyAdapter.runRubyMethod(android.view.View.class, rubyInstance, "onCreateView", new Object[]{parent, name, context, attrs});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2676,13 +2662,13 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_key_shortcut}")) {
           super.onKeyShortcut(keyCode, event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_keyCode", keyCode);
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_key_shortcut($arg_keyCode, $arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_key_shortcut", new Object[]{keyCode, event});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2692,13 +2678,13 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onKeyShortcut}")) {
             super.onKeyShortcut(keyCode, event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_keyCode", keyCode);
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onKeyShortcut($arg_keyCode, $arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onKeyShortcut", new Object[]{keyCode, event});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2725,12 +2711,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_window_starting_action_mode}")) {
           super.onWindowStartingActionMode(callback);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_callback", callback);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (android.view.ActionMode) JRubyAdapter.runScriptlet("$ruby_instance.on_window_starting_action_mode($arg_callback)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (android.view.ActionMode) JRubyAdapter.runRubyMethod(android.view.ActionMode.class, rubyInstance, "on_window_starting_action_mode", callback);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2740,12 +2726,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onWindowStartingActionMode}")) {
             super.onWindowStartingActionMode(callback);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_callback", callback);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (android.view.ActionMode) JRubyAdapter.runScriptlet("$ruby_instance.onWindowStartingActionMode($arg_callback)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (android.view.ActionMode) JRubyAdapter.runRubyMethod(android.view.ActionMode.class, rubyInstance, "onWindowStartingActionMode", callback);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2772,12 +2758,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_generic_motion_event}")) {
           super.onGenericMotionEvent(event);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_event", event);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.on_generic_motion_event($arg_event)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "on_generic_motion_event", event);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2787,12 +2773,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onGenericMotionEvent}")) {
             super.onGenericMotionEvent(event);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_event", event);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               return (Boolean) JRubyAdapter.runScriptlet("$ruby_instance.onGenericMotionEvent($arg_event)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 return (Boolean) JRubyAdapter.runRubyMethod(Boolean.class, rubyInstance, "onGenericMotionEvent", event);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2819,12 +2805,12 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_trim_memory}")) {
           super.onTrimMemory(arg0);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_arg0", arg0);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_trim_memory($arg_arg0)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_trim_memory", arg0);
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2834,12 +2820,12 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onTrimMemory}")) {
             super.onTrimMemory(arg0);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_arg0", arg0);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onTrimMemory($arg_arg0)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onTrimMemory", arg0);
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2866,14 +2852,14 @@ public class RubotoActivity extends android.app.Activity {
         if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :on_apply_theme_resource}")) {
           super.onApplyThemeResource(theme, resid, first);
           // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-          if (isJRubyPreOneSeven()) {
+          if (JRubyAdapter.isJRubyPreOneSeven()) {
             JRubyAdapter.put("$arg_theme", theme);
             JRubyAdapter.put("$arg_resid", resid);
             JRubyAdapter.put("$arg_first", first);
             JRubyAdapter.put("$ruby_instance", rubyInstance);
             JRubyAdapter.runScriptlet("$ruby_instance.on_apply_theme_resource($arg_theme, $arg_resid, $arg_first)");
           } else {
-            if (isJRubyOneSeven()) {
+            if (JRubyAdapter.isJRubyOneSeven()) {
               JRubyAdapter.runRubyMethod(rubyInstance, "on_apply_theme_resource", new Object[]{theme, resid, first});
             } else {
               throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
@@ -2883,14 +2869,14 @@ public class RubotoActivity extends android.app.Activity {
           if ((Boolean)JRubyAdapter.runScriptlet("defined?(" + rubyClassName + ") == 'constant' && " + rubyClassName + ".instance_methods(false).any?{|m| m.to_sym == :onApplyThemeResource}")) {
             super.onApplyThemeResource(theme, resid, first);
             // FIXME(uwe): Simplify when we stop support for RubotoCore 0.4.7
-            if (isJRubyPreOneSeven()) {
+            if (JRubyAdapter.isJRubyPreOneSeven()) {
               JRubyAdapter.put("$arg_theme", theme);
               JRubyAdapter.put("$arg_resid", resid);
               JRubyAdapter.put("$arg_first", first);
               JRubyAdapter.put("$ruby_instance", rubyInstance);
               JRubyAdapter.runScriptlet("$ruby_instance.onApplyThemeResource($arg_theme, $arg_resid, $arg_first)");
             } else {
-              if (isJRubyOneSeven()) {
+              if (JRubyAdapter.isJRubyOneSeven()) {
                 JRubyAdapter.runRubyMethod(rubyInstance, "onApplyThemeResource", new Object[]{theme, resid, first});
               } else {
                 throw new RuntimeException("Unknown JRuby version: " + JRubyAdapter.get("JRUBY_VERSION"));
