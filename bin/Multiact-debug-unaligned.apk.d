@@ -16,6 +16,6 @@
 /media/storage/home/jeremy/recent_projects/multiact/src/ruboto/widget.rb \
 /media/storage/home/jeremy/recent_projects/multiact/src/multiact_activity.rb \
 /media/storage/home/jeremy/recent_projects/multiact/src/ruboto.rb \
-/media/storage/home/jeremy/recent_projects/multiact/libs/jruby-core-1.7.0.preview2.dev.jar \
 /media/storage/home/jeremy/recent_projects/multiact/libs/dexmaker20120305.jar \
-/media/storage/home/jeremy/recent_projects/multiact/libs/jruby-stdlib-1.7.0.preview2.dev.jar \
+/media/storage/home/jeremy/recent_projects/multiact/libs/jruby-core-1.7.0.preview2.jar \
+/media/storage/home/jeremy/recent_projects/multiact/libs/jruby-stdlib-1.7.0.preview2.jar \
